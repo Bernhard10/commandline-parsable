@@ -1,11 +1,10 @@
 import inspect
 import logging
+import re
 
+from collections import OrderedDict
 log=logging.getLogger(__name__)
 
-@parsable_base(base_instantiable=True, required_kwargs=["stat_source"], factory_function=None,)
-class Mover():
-    pass
 
 def _get_all_subclasses(cls, include_base = False):
     """
@@ -26,10 +25,12 @@ def _get_all_subclasses(cls, include_base = False):
 
 def _try_convert(value, target_type):
     try:
+        log.debug("Trying to convert argument %s to %s", value, target_type)
         return target_type(value)
     except:
-        log.info("Could not convert argument {} to {}".format(value, target_type))
+        log.warning("Could not convert argument %s to %s", value, target_type)
         return value
+
 
 def _convert_and_call(function, *args, **kwargs):
     """
@@ -40,51 +41,66 @@ def _convert_and_call(function, *args, **kwargs):
     This tries to perform the conversion by calling the type (works for int,str).
     If calling the type results in an error, no conversion is performed.
     """
-
-    argspec = inspect.getfullargspec(function)
-    annot = argspec.annotations
-    for i, arg in argspec.args:
-        if arg in annot:
-            if i<len(args):
-                args[i]=_try_convert(args[i], annot[arg])
-            elif arg in kwargs:
-                kwargs[arg]=_try_convert(kwargs[arg], annot[arg])
+    args = list(args)
+    try:
+        argspec = inspect.getfullargspec(function)
+    except AttributeError:
+        pass # Py2K
+    else:
+        annot = argspec.annotations
+        log.debug("Function's annotations are: %s", annot)
+        for i, arg in enumerate(argspec.args):
+            i=i-1 # cls/ self does not count
+            if arg in annot:
+                log.debug("For arg %s: i=%s, args=%s", arg, i, args)
+                if i<len(args):
+                    args[i]=_try_convert(args[i], annot[arg])
+                elif arg in kwargs:
+                    kwargs[arg]=_try_convert(kwargs[arg], annot[arg])
+            else:
+                log.debug("No annotation present for %s", arg)
     return function(*args, **kwargs)
+
 
 def call(function, *args, **kwargs):
     try:
         return _convert_and_call(function, *args, **kwargs)
     except TypeError as e:
-        if "arguments" not in e.message:
+        if "arguments" not in str(e):
             raise
         argspec = inspect.getfullargspec(function)
         target_kwargs = argspec.args[len(args):]
         missing_arg = set(target_kwargs)-set(kwargs.keys())
         if missing_arg:
-            raise TypeError(e.message+" The following required arguments are "
+            raise TypeError(*e.args, " The following required arguments are "
                             "missing: {}".format(function, missing_arg))
         else:
             raise
 
-def parsable_base(base_instantiable=True, required_kwargs = None, factory_function = None, name_attr=None, helptext_sep=" ", help_attr="__doc__", allow_pre_and_post_number=False):
+
+def parsable_base(base_instantiable=True, required_kwargs = [], factory_function = None, name_attr=None, helptext_sep=", ", help_attr="__doc__", allow_pre_and_post_number=False, help_intro_list_sep=". One of the following: "):
     """
     A class decorator that adds the `from_string` factory classmethod to a class
 
     :param base_instantiable: Whether or not instances of the base-class can be instantiated.
 
     """
-    def _get_helptext(cls, intro):
-        help_txt = intro+helptext_sep
-        for cls in _get_all_subclasses(cls, base_instantiable):
-            help_txt+=getattr(cls, help_attr)+helptext_sep
-        return help_txt
+    if factory_function in ["from_string", "add_to_parser"]:
+        raise ValueError("The name {} is reserved by parsable_base and cannot be used as factory_function.".format(factory_function))
 
+    def _get_helptext(cls, intro):
+        help_txt = intro+help_intro_list_sep
+        help_txt += helptext_sep.join(
+                        "`{}`: {}".format(name, getattr(c, help_attr).strip())
+                        for name, c in _subclass_dict(cls).items()
+                   )
+        return help_txt
     def _subclass_dict(cls):
         subclasses = _get_all_subclasses(cls, base_instantiable)
-        cls_dict = {}
+        cls_dict = OrderedDict()
         for subcls in subclasses:
             if name_attr is None:
-                name = type(subcls).__name__
+                name = subcls.__name__
             else:
                 name = getattr(subcls, name_attr)
             cls_dict[name] = subcls
@@ -93,15 +109,13 @@ def parsable_base(base_instantiable=True, required_kwargs = None, factory_functi
     def add_to_parser(cls, parser, arg_name, help_intro=""):
         parser.add_argument(arg_name, help=_get_helptext(cls, help_intro), type=str, nargs=1 )
 
-
-
     def from_string(cls, string, **kwargs):
         """
         Create a list of instances of (subclasses of) this class based on string.
 
         :param string: This is typically received as commandline argument.
         """
-        if kwargs.keys() != required_kwargs.keys():
+        if set(kwargs.keys()) != set(required_kwargs):
             try:
                 missing = set(required_kwargs) - kwargs.keys()
                 extra   = kwargs.keys()-set(required_kwargs)
@@ -124,8 +138,8 @@ def parsable_base(base_instantiable=True, required_kwargs = None, factory_functi
             for i in range(len(whole_match)):
                 try:
                     if whole_match[i]!=string[i]:
-                        char = whole_match[i]
-                        raise ValueError("'{}' not understood. Unexpected character at pos {}: '{}'".format(string, i, char))
+                        char = string[i]
+                        raise ValueError("'{}' not understood. Unexpected character at pos {}: '{}', expected '{}'".format(string, i, char, whole_match[i]))
                 except KeyError:
                     pass
             raise ValueError("'{}' not understood. Error after pos {}: '...{}'".format(string, i, whole_match[i-5:i-1]))
@@ -133,21 +147,23 @@ def parsable_base(base_instantiable=True, required_kwargs = None, factory_functi
         subclasses = _subclass_dict(cls)
 
         return_instances = []
+        log.debug("Matches are %s", matches)
         for mo in matches:
+            #import pdb; pdb.set_trace()
             try:
                 target_cls = subclasses[mo.group("name")]
             except KeyError as e:
-                raise ValueError("Unknown subclass of class {}: '{}'.\n "
+                raise ValueError("Unknown subclass of class {}: '{}'.\n"
                                  "Valid names are: {}".format(cls.__name__, e,
                                                             subclasses.keys()))
             if factory_function:
                 instantiate = getattr(target_cls, factory_function)
             else:
-                instantiate = tagret_cls
-            arguments = match.group("arguments")
+                instantiate = target_cls
+            arguments = mo.group("arguments")
             if arguments:
-                assert argument[0]=="[" and argument[-1]=="]"
-                arguments = argument.split(",")
+                assert arguments[0]=="[" and arguments[-1]=="]"
+                arguments = arguments[1:-1].split(",")
             else:
                 arguments = []
 
@@ -160,10 +176,10 @@ def parsable_base(base_instantiable=True, required_kwargs = None, factory_functi
             return_instances.append(instance)
         return return_instances
 
-    def __call__(self, cls):
-        self.wrapped_cls=cls
+    def decorate(cls):
         cls.add_to_parser=classmethod(add_to_parser)
         if required_kwargs:
             from_string.__doc__+="\nThe following keyword arguments are required: {}".format(", ".join(required_kwargs))
         cls.from_string=classmethod(from_string)
         return cls
+    return decorate
