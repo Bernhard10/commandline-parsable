@@ -1,6 +1,6 @@
 import inspect
 import logging
-import re
+import regex as re
 
 from collections import OrderedDict
 log=logging.getLogger(__name__)
@@ -137,10 +137,13 @@ def parsable_base(base_instantiable=True, required_kwargs = [],
                             "keyword arguments: {}.{}".format(cls.__name__,
                                                               required_kwargs,
                                                               extra_info))
+        if string.count("[") != string.count("]"):
+            raise ValueError("Unbalanced Brackets: Found {} times `[` but "
+                             "{} times `]`".format(string.count("["),string.count("]")))
         if allow_pre_and_post_number:
-            regex = r"(?P<pre>(?:-?[0-9]*\.?[0-9]+_?)*)(?P<name>[a-zA-Z][a-zA-Z_]*)(?P<arguments>(?:\[.*?\])*)(?P<post>(?:-?[0-9]*\.?[0-9]+_?)*)"
+            regex = r"(?P<pre>(?:-?[0-9]*\.?[0-9]+_?)*)(?P<name>[a-zA-Z][a-zA-Z_]*)(?P<arguments>(?:\[(?:.*?(?&arguments).*?)*?\])?)(?P<post>(?:-?[0-9]*\.?[0-9]+_?)*)"
         else:
-            regex =r"(?P<name>[0-9a-zA-Z_]+)(?P<arguments>(?:\[.*?\])*)"
+            regex =r"(?P<name>[0-9a-zA-Z_]+)(?P<arguments>(?:\[(?:.*?(?&arguments).*?)*?\])?)"
         matches = [ mo for mo in re.finditer(regex, string)]
         whole_match = ",".join(mo.group(0) for mo in matches)
         if whole_match != string:
@@ -172,7 +175,10 @@ def parsable_base(base_instantiable=True, required_kwargs = [],
             arguments = mo.group("arguments")
             if arguments:
                 assert arguments[0]=="[" and arguments[-1]=="]"
-                arguments = arguments[1:-1].split(",")
+                arguments = arguments[1:-1]
+                arg_regex = r"[^,\[\]]+(?P<arguments>\[(?:.*?(?&arguments)?.*?)*\])?[^,\]\[]*"
+                arguments = [ mo.group(0) for mo in re.finditer(arg_regex, arguments)]
+                arguments = [ a for a in arguments if a ] # regex allows 0-length matches
             else:
                 arguments = []
 

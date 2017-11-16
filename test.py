@@ -30,6 +30,30 @@ class ClassD(ClassB):
     pass
 
 
+@parsable_base(base_instantiable=True, factory_function="build")
+class AnotherClass(object):
+    """
+    This is another Base-Class
+    """
+    @classmethod
+    def build(cls, arg1, arg2):
+        instance = cls()
+        instance.arg1 = arg1
+        instance.arg2 = arg2
+        return instance
+
+class AnotherSubClass(AnotherClass):
+    """
+    This is another Sub-Class
+    """
+    @classmethod
+    def build(cls, arg1, arg2, arg3):
+        instance = cls()
+        instance.arg1 = arg1
+        instance.arg2 = arg2
+        instance.arg3 = arg3
+        return instance
+
 def test_helpmessage():
     parser = argparse.ArgumentParser(prog="EXECUTABLE", formatter_class=argparse.RawTextHelpFormatter)
     ClassA.add_to_parser(parser, "--option1", "Choose the class you like to use")
@@ -51,3 +75,12 @@ def test_correct_class_instantiated_multiple():
     instances = ClassA.from_string("ClassD,ClassB", hallo=12)
     assert type(instances[0]) == ClassD
     assert type(instances[1]) == ClassB
+
+def test_nested_arguments():
+    instances = AnotherClass.from_string("AnotherClass[aaa[b],bbb],AnotherSubClass[cd[e[f,g,h],i]bla,gh[i],jkl]")
+    assert instances[0].arg1 == "aaa[b]"
+    assert instances[0].arg2 == "bbb"
+
+    assert instances[1].arg1 == "cd[e[f,g,h],i]bla"
+    assert instances[1].arg2 == "gh[i]"
+    assert instances[1].arg3 == "jkl"
