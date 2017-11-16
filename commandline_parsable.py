@@ -78,7 +78,10 @@ def call(function, *args, **kwargs):
             raise
 
 
-def parsable_base(base_instantiable=True, required_kwargs = [], factory_function = None, name_attr=None, helptext_sep=", ", help_attr="__doc__", allow_pre_and_post_number=False, help_intro_list_sep=". One of the following: "):
+def parsable_base(base_instantiable=True, required_kwargs = [],
+                  factory_function = None, name_attr=None, helptext_sep=", ",
+                  help_attr="__doc__", allow_pre_and_post_number=False,
+                  help_intro_list_sep=". One of the following: "):
     """
     A class decorator that adds the `from_string` factory classmethod to a class
 
@@ -106,8 +109,14 @@ def parsable_base(base_instantiable=True, required_kwargs = [], factory_function
             cls_dict[name] = subcls
         return cls_dict
 
-    def add_to_parser(cls, parser, arg_name, help_intro=""):
-        parser.add_argument(arg_name, help=_get_helptext(cls, help_intro), type=str, nargs=1 )
+    def add_to_parser(cls, parser, arg_name, help_intro="", default=None):
+        if default is not None:
+            kwargs={default:default}
+        else:
+            kwargs={}
+        parser.add_argument(arg_name,
+                            help=_get_helptext(cls, help_intro),
+                            type=str, nargs=1, **kwargs )
 
     def from_string(cls, string, **kwargs):
         """
