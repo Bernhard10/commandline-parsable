@@ -2,6 +2,7 @@ import argparse
 import textwrap
 import sys
 from commandline_parsable import parsable_base
+from commandline_parsable import split_by_outerlevel_character as resplit
 
 @parsable_base(base_instantiable=True, required_kwargs=["hallo"], factory_function=None,)
 class ClassA(object):
@@ -84,3 +85,8 @@ def test_nested_arguments():
     assert instances[1].arg1 == "cd[e[f,g,h],i]bla"
     assert instances[1].arg2 == "gh[i]"
     assert instances[1].arg3 == "jkl"
+
+def test_split_by_outerlevel_character():
+    assert resplit("a,[b,v[f],de[e,t[f,]]],www,2e2[323,2]", ",")==["a","[b,v[f],de[e,t[f,]]]", "www", "2e2[323,2]"]
+    assert resplit("ab,cd[3,e.]..e,,f", ",.") == ["ab","cd[3,e.]","e","f"]
+    assert resplit("ab[p,k]") == ["ab[p,k]"]

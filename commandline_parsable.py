@@ -77,6 +77,15 @@ def call(function, *args, **kwargs):
         else:
             raise
 
+def split_by_outerlevel_character(string, character=","):
+    """
+    Thanks to Wiktor Stribiżew at stackoverflow: https://stackoverflow.com/a/36327468
+    """
+    if string.count("[") != string.count("]"):
+           raise ValueError("Unbalanced brackets encountered.")
+    regex = r"(?P<nested>\[(?:[^\[\]]++|(?&nested))*\])(*SKIP)(*FAIL)|[{0}]+".format(re.escape(character))
+    fields = re.split(regex, string)
+    return [ f for f in fields if f ]
 
 def parsable_base(base_instantiable=True, required_kwargs = [],
                   factory_function = None, name_attr=None, helptext_sep=", ",
@@ -176,9 +185,7 @@ def parsable_base(base_instantiable=True, required_kwargs = [],
             if arguments:
                 assert arguments[0]=="[" and arguments[-1]=="]"
                 arguments = arguments[1:-1]
-                arg_regex = r"[^,\[\]]+(?P<arguments>\[(?:.*?(?&arguments)?.*?)*\])?[^,\]\[]*"
-                arguments = [ mo.group(0) for mo in re.finditer(arg_regex, arguments)]
-                arguments = [ a for a in arguments if a ] # regex allows 0-length matches
+                arguments = split_by_outerlevel_character(arguments, ",")
             else:
                 arguments = []
 
