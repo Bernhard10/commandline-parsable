@@ -8,16 +8,25 @@ log=logging.getLogger(__name__)
 
 def _get_all_subclasses(cls, include_base = False):
     """
-    Thanks to fletom at http://stackoverflow.com/a/17246726/5069869
+    Get all subclasses of a given class, unless they are abstract.
+
+    Code modified from http://stackoverflow.com/a/17246726/5069869 by fletom
     """
     all_subclasses = []
     if include_base:
-        log.debug("Including base-class %s", cls)
-        all_subclasses.append(cls)
+        if inspect.isabstract(cls):
+            log.warning("BaseClass %s is abstract and will not be included "
+                        "in the list of all subclasses.", cls)
+        else:
+            log.debug("Including base-class %s", cls)
+            all_subclasses.append(cls)
 
     for subclass in cls.__subclasses__():
-        log.debug("Including sub-class %s and searching recursively.", subclass)
-        all_subclasses.append(subclass)
+        if inspect.isabstract(subclass):
+            log.debug("Not including abstract sub-class %s, but searching recursively.", subclass)
+        else:
+            log.debug("Including sub-class %s and searching recursively.", subclass)
+            all_subclasses.append(subclass)
         all_subclasses.extend(_get_all_subclasses(subclass))
         log.debug("Search for subsubclasses (subclasses of %s) done", subclass)
     return all_subclasses
