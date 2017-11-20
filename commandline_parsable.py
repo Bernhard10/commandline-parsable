@@ -75,20 +75,21 @@ def call(function, *args, **kwargs):
     try:
         return _convert_and_call(function, *args, **kwargs)
     except TypeError as e:
-        if "arguments" not in str(e):
+        if "argument" not in str(e):
             raise
-        argspec = inspect.getfullargspec(function)
+        argspec = inspect.getargspec(function)
         target_kwargs = argspec.args[len(args):]
         missing_arg = set(target_kwargs)-set(kwargs.keys())
         if missing_arg:
-            raise TypeError(*e.args, " The following required arguments are "
-                            "missing: {}".format(function, missing_arg))
+            msg = e.args + (" Tried to call {} with args={}, kwargs={}. The following required arguments are "
+                            "missing: {}".format(function, args, kwargs.items(), missing_arg),)
+            raise TypeError(msg)
         else:
             raise
 
 def split_by_outerlevel_character(string, character=","):
     """
-    Thanks to Wiktor Stribiżew at stackoverflow: https://stackoverflow.com/a/36327468
+    Thanks to Wiktor Stribizew at stackoverflow: https://stackoverflow.com/a/36327468
     """
     if string.count("[") != string.count("]"):
            raise ValueError("Unbalanced brackets encountered.")
@@ -129,7 +130,7 @@ def parsable_base(base_instantiable=True, required_kwargs = [],
 
     def add_to_parser(cls, parser, arg_name, help_intro="", default=None):
         if default is not None:
-            kwargs={default:default}
+            kwargs={"default":default}
         else:
             kwargs={}
         parser.add_argument(arg_name,
