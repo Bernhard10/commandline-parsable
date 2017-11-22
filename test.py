@@ -3,6 +3,7 @@ import textwrap
 import sys
 from commandline_parsable import parsable_base
 from commandline_parsable import split_by_outerlevel_character as resplit
+import commandline_parsable
 
 @parsable_base(base_instantiable=True, required_kwargs=["hallo"], factory_function=None,)
 class ClassA(object):
@@ -90,3 +91,29 @@ def test_split_by_outerlevel_character():
     assert resplit("a,[b,v[f],de[e,t[f,]]],www,2e2[323,2]", ",")==["a","[b,v[f],de[e,t[f,]]]", "www", "2e2[323,2]"]
     assert resplit("ab,cd[3,e.]..e,,f", ",.") == ["ab","cd[3,e.]","e","f"]
     assert resplit("ab[p,k]") == ["ab[p,k]"]
+
+def test_call_error_reporting():
+    def aFunnyFunction(arg1, arg2, arg3):
+        pass
+    try:
+        commandline_parsable.call(aFunnyFunction, 1,2)
+    except TypeError as e:
+        print(e)
+        assert "Tried to call" in str(e)
+        assert "aFunnyFunction" in str(e)
+    else:
+        assert False
+
+def test_call_error_reporting2():
+    def aFunnyFunction(arg1, arg2, arg3):
+        pass
+    def bFunction(a, c, d=12):
+        aFunnyFunction(a)
+    try:
+        commandline_parsable.call(bFunction, 1,2)
+    except TypeError as e:
+        print(e)
+        assert "Tried to call" not in str(e)
+        assert "bFunction" not in str(e)
+    else:
+        assert False

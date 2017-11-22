@@ -1,6 +1,8 @@
 import inspect
 import logging
 import regex as re
+import traceback
+import sys
 
 from collections import OrderedDict
 log=logging.getLogger(__name__)
@@ -79,10 +81,12 @@ def call(function, *args, **kwargs):
             raise
         argspec = inspect.getargspec(function)
         target_kwargs = argspec.args[len(args):]
-        missing_arg = set(target_kwargs)-set(kwargs.keys())
-        if missing_arg:
-            msg = e.args + (" Tried to call {} with args={}, kwargs={}. The following required arguments are "
-                            "missing: {}".format(function, args, kwargs.items(), missing_arg),)
+        missing_args = set(target_kwargs) - set(kwargs.keys())
+        tb = traceback.extract_tb(sys.exc_info()[2])
+        print("TB NAME", tb[-1][2], "Missing", missing_args, "target", set(target_kwargs))
+        if missing_args and tb[-1][2] == "_convert_and_call":
+            msg = e.args + (" Tried to call {} with args={}, kwargs={}. The following arguments are "
+                            "missing: {}".format(function, args, kwargs.items(), list(missing_args)),)
             raise TypeError(msg)
         else:
             raise
