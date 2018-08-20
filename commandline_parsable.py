@@ -78,11 +78,16 @@ def call(function, *args, **kwargs):
     try:
         return _convert_and_call(function, *args, **kwargs)
     except TypeError as e:
-        log.exception("The following exception occured and will be reraised with different message:")
         if "argument" not in str(e):
             raise
+        t, v, tb = sys.exc_info()
+        log.exception("The following exception occured and will be reraised with different message:")
         if hasattr(function, "__init__"):
-            argspec = inspect.getargspec(function.__init__)
+            try:
+                argspec = inspect.getargspec(function.__init__)
+            except TypeError: 
+                # Reraise original error
+                raise t, v, tb
             target_args = argspec.args[1:]
         else:
             argspec = inspect.getargspec(function)
