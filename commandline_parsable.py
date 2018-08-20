@@ -70,6 +70,7 @@ def _convert_and_call(function, *args, **kwargs):
                     kwargs[arg]=_try_convert(kwargs[arg], annot[arg])
             else:
                 log.debug("No annotation present for %s", arg)
+    log.debug("Calling %s with args=%s, kwargs=%s", function.__name__, args, kwargs)
     return function(*args, **kwargs)
 
 
@@ -77,16 +78,35 @@ def call(function, *args, **kwargs):
     try:
         return _convert_and_call(function, *args, **kwargs)
     except TypeError as e:
+        log.exception("The following exception occured and will be reraised with different message:")
         if "argument" not in str(e):
             raise
-        argspec = inspect.getargspec(function)
-        target_kwargs = argspec.args[len(args):]
+        if hasattr(function, "__init__"):
+            argspec = inspect.getargspec(function.__init__)
+            target_args = argspec.args[1:]
+        else:
+            argspec = inspect.getargspec(function)
+            target_args = argspec.args
+        target_kwargs = target_args[len(args):]
         missing_args = set(target_kwargs) - set(kwargs.keys())
         tb = traceback.extract_tb(sys.exc_info()[2])
-        print("TB NAME", tb[-1][2], "Missing", missing_args, "target", set(target_kwargs))
-        if missing_args and tb[-1][2] == "_convert_and_call":
-            msg = e.args + (" Tried to call {} with args={}, kwargs={}. The following arguments are "
-                            "missing: {}".format(function, args, kwargs.items(), list(missing_args)),)
+        signature = ", ".join(argspec.args)
+        if argspec.varargs:
+            singature+=", *{}".format(argspec.varargs)
+        if argspec.keywords:
+            singature+=", **{}".format(argspec.keywords)
+        used_sig = ", ".join(args)+", "*(bool(args) and bool(kwargs))+", ".join("{}={}".format(k,v) for k,v in kwargs.items())
+        if tb[-1][2] == "_convert_and_call":
+            msg = (str(e) + "\nTried to call {fun} with signature ({target_sig}) (from module"
+                           " {module}) as {fun}({used_sig}) "
+                           "".format(fun=function.__name__,
+                                     target_sig = signature,
+                                     module=function.__module__,
+                                     used_sig=used_sig
+                                    ))
+            if missing_args:
+                msg+=("The following arguments are "
+                      "missing: {}".format(list(missing_args)))
             raise TypeError(msg)
         else:
             raise
@@ -101,6 +121,17 @@ def split_by_outerlevel_character(string, character=","):
     fields = re.split(regex, string)
     return [ f for f in fields if f ]
 
+def format_helpentry(name, text):
+    lines = text.splitlines()
+    help_txt = "`{}`: {}\n".format(name, lines.pop(0))
+    indent=len(name)
+    if indent>15:
+        indent=10
+    indent=" "*max(3,indent)
+    for line in lines:
+        help_txt += " {}   {}\n".format(indent, line)
+    return help_txt[:-1]
+
 def parsable_base(base_instantiable=True, required_kwargs = [],
                   factory_function = None, name_attr=None, helptext_sep=", ",
                   help_attr="__doc__", allow_pre_and_post_number=False,
@@ -108,7 +139,9 @@ def parsable_base(base_instantiable=True, required_kwargs = [],
     """
     A class decorator that adds the `from_string` factory classmethod to a class
 
-    :param base_instantiable: Whether or not instances of the base-class can be instantiated.
+    :param base_instantiable: Whether or not instances of the base-class
+                              can be instantiated.
+    :param required_kwargs:
 
     """
     if factory_function in ["from_string", "add_to_parser"]:
@@ -117,7 +150,7 @@ def parsable_base(base_instantiable=True, required_kwargs = [],
     def _get_helptext(cls, intro):
         help_txt = intro+help_intro_list_sep
         help_txt += helptext_sep.join(
-                        "`{}`: {}".format(name, getattr(c, help_attr).strip())
+                        format_helpentry(name, getattr(c, help_attr).strip())
                         for name, c in _subclass_dict(cls).items()
                    )
         return help_txt
@@ -139,32 +172,36 @@ def parsable_base(base_instantiable=True, required_kwargs = [],
             kwargs={}
         parser.add_argument(arg_name,
                             help=_get_helptext(cls, help_intro),
-                            type=str, nargs=1, **kwargs )
+                            type=str, action="store", **kwargs )
 
-    def from_string(cls, string, **kwargs):
+    def from_string(cls, string, *args, **kwargs):
         """
         Create a list of instances of (subclasses of) this class based on string.
 
         :param string: This is typically received as commandline argument.
         """
-        if set(kwargs.keys()) != set(required_kwargs):
-            try:
-                missing = set(required_kwargs) - kwargs.keys()
-                extra   = kwargs.keys()-set(required_kwargs)
-            except TypeError: #Python 2
-                extra_info = ""
-            else:
-                extra_info = ("Missing arguments: {}, "
-                              "extra arguments: {}".format(missing, extra))
+        if args:
+            raise TypeError("from_string() takes exactly 2 arguments ({} given)."
+                            " Please specify all arguments "
+                            "(except cls and string) as keyword arguments.".format(len(args)+2))
+        log.debug("from_string called with kwargs: %s. Required kwargs are: %s", set(kwargs.keys()), set(required_kwargs))
+        if not (set(kwargs.keys()) >= set(required_kwargs)):
+            missing = set(required_kwargs) - set(kwargs.keys())
+            extra   = set(kwargs.keys())-set(required_kwargs)
+            extra_info = ""
+            if missing:
+                extra_info+="\nMissing: {}; ".format(", ".join(missing))
+            if extra:
+                extra_info+="\nExtra argument(s): {}".format(", ".join(extra))
             raise TypeError("from_string of class {} requires the following "
                             "keyword arguments: {}.{}".format(cls.__name__,
-                                                              required_kwargs,
+                                                              ", ".join(required_kwargs),
                                                               extra_info))
         if string.count("[") != string.count("]"):
             raise ValueError("Unbalanced Brackets: Found {} times `[` but "
                              "{} times `]`".format(string.count("["),string.count("]")))
         if allow_pre_and_post_number:
-            regex = r"(?P<pre>(?:-?[0-9]*\.?[0-9]+_?)*)(?P<name>[a-zA-Z][a-zA-Z_]*)(?P<arguments>(?:\[(?:.*?(?&arguments).*?)*?\])?)(?P<post>(?:-?[0-9]*\.?[0-9]+_?)*)"
+            regex = r"(?P<pre>(?:-?[0-9]*\.?[0-9]+_?)*)(?P<name>[a-zA-Z][a-zA-Z_]*)(?P<post>(?:-?[0-9]*\.?[0-9]+_?)*)(?P<arguments>(?:\[(?:.*?(?&arguments).*?)*?\])?)"
         else:
             regex =r"(?P<name>[0-9a-zA-Z_]+)(?P<arguments>(?:\[(?:.*?(?&arguments).*?)*?\])?)"
         matches = [ mo for mo in re.finditer(regex, string)]
