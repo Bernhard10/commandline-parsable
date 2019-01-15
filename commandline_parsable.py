@@ -4,6 +4,12 @@ import regex as re
 import traceback
 import sys
 
+if sys.version_info[0] >2:
+    PY3K=True
+else:
+    PY3K=False
+    import six
+
 from collections import OrderedDict
 log=logging.getLogger(__name__)
 
@@ -53,11 +59,8 @@ def _convert_and_call(function, *args, **kwargs):
     If calling the type results in an error, no conversion is performed.
     """
     args = list(args)
-    try:
+    if PY3K:
         argspec = inspect.getfullargspec(function)
-    except AttributeError:
-        pass # Py2K
-    else:
         annot = argspec.annotations
         log.debug("Function's annotations are: %s", annot)
         for i, arg in enumerate(argspec.args):
@@ -81,30 +84,50 @@ def call(function, *args, **kwargs):
         if "argument" not in str(e):
             raise
         t, v, tb = sys.exc_info()
-        log.exception("The following exception occured and will be reraised with different message:")
-        if hasattr(function, "__init__"):
-            try:
-                argspec = inspect.getargspec(function.__init__)
-            except TypeError: 
-                # Reraise original error
-                raise t, v, tb
-            target_args = argspec.args[1:]
-        else:
+        log.error("Error calling %s", function.__name__)
+        log.exception("The following exception occured and will be reraised with a potentially different message:")
+        log.error(" ")
+        try:
+            log.debug("Getting rgspec of function")
             argspec = inspect.getargspec(function)
             target_args = argspec.args
-        target_kwargs = target_args[len(args):]
+        except TypeError:
+            try:
+                log.debug("getting argspec of init")
+                argspec = inspect.getargspec(function.__init__)
+            except TypeError as e2:
+                log.debug("Cannot get argspec: %s", e2)
+                if PY3K:
+                    raise e #from None
+                else:
+                    # Reraise original error
+                    six.reraise(t, v, tb)
+            target_args = argspec.args[1:]
+
+        target_kwargs = target_args[len(args)+1:]
         missing_args = set(target_kwargs) - set(kwargs.keys())
         tb = traceback.extract_tb(sys.exc_info()[2])
         signature = ", ".join(argspec.args)
         if argspec.varargs:
-            singature+=", *{}".format(argspec.varargs)
+            signature+=", *{}".format(argspec.varargs)
         if argspec.keywords:
-            singature+=", **{}".format(argspec.keywords)
-        used_sig = ", ".join(args)+", "*(bool(args) and bool(kwargs))+", ".join("{}={}".format(k,v) for k,v in kwargs.items())
+            signature+=", **{}".format(argspec.keywords)
+        used_sig = ", ".join(map(repr,args))+", "*(bool(args) and bool(kwargs))+", ".join("{}={}".format(k,v) for k,v in kwargs.items())
         if tb[-1][2] == "_convert_and_call":
+            try:
+               fname = function.__qualname__
+            except AttributeError:
+               try:
+                  if function.im_self is not None: # bound method
+                      fname = function.im_self.__name__ + "." + function.__name__
+                  else:
+                      fname = function.im_class.__name__ + "." + function.__name__
+               except Exception as ex2:
+                  # py 3.0-3.2
+                  fname = function.__name__
             msg = (str(e) + "\nTried to call {fun} with signature ({target_sig}) (from module"
                            " {module}) as {fun}({used_sig}) "
-                           "".format(fun=function.__name__,
+                           "".format(fun=fname,
                                      target_sig = signature,
                                      module=function.__module__,
                                      used_sig=used_sig
