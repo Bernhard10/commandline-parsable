@@ -2,7 +2,7 @@ from setuptools import setup
 
 
 setup(name='commandline_parsable',
-      version='0.1.1',
+      version='0.2.0',
       description='Choose subclass based on commandline options',
       author='Bernhard Thiel',
       author_email='thiel@tbi.univie.ac.at',
